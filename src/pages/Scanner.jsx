@@ -18,7 +18,7 @@ import SearchWorker from '../wasm/search.worker.js?worker'
 import { getPKParameters, simulatePharmacokinetics, checkDosageSafety } from '../services/pharmacokineticsService.js'
 import InteractionGraphVisualizer from '../components/InteractionGraphVisualizer.jsx'
 import { parseSalts, matchQuality } from '../services/dbService.js'
-import { extractLocalLabelDetails, hasVerifiedMedicineEvidence, isExpiryMonthExpired, resolveKnownMedicineBrand } from '../services/localMedicineLabel.js'
+import { extractLocalLabelDetails, hasCatalogIngredientMatch, hasVerifiedMedicineEvidence, isExpiryMonthExpired, resolveKnownMedicineBrand } from '../services/localMedicineLabel.js'
 import { JA_STORE_URL, openJanAushadhiStore } from '../services/storeLocator.js'
 
 const VIEWS = { HOME: 'home', LOADING: 'loading', RESULTS: 'results', ERROR: 'error', AR: 'ar' }
@@ -984,10 +984,10 @@ export default function Scanner() {
           const expectedSalts = knownBrand ? parseSalts(knownBrand.saltComposition) : null;
           const candCdscoMatch = knownBrand
             ? (res.cdsco || []).find(match => matchQuality(expectedSalts, parseSalts(match.row['Strength'] || '')) === 'exact') || null
-            : (res.cdsco || []).find(match => match.exactMatch) || null;
+            : (res.cdsco || []).find(match => hasCatalogIngredientMatch(extractedText, match)) || null;
           const candJaMatch = knownBrand
             ? (res.ja || []).find(match => matchQuality(expectedSalts, parseSalts(match.row['Generic Name'] || '')) === 'exact') || null
-            : (res.ja || []).find(match => match.exactMatch) || null;
+            : (res.ja || []).find(match => hasCatalogIngredientMatch(extractedText, match)) || null;
           const candCdscoScore = candCdscoMatch ? candCdscoMatch.score : 0;
           const candJaScore = candJaMatch ? candJaMatch.score : 0;
           const candMaxScore = Math.max(candCdscoScore, candJaScore);
@@ -1072,7 +1072,7 @@ export default function Scanner() {
           const item = match.row;
           const pSalts = parseSalts(item['Generic Name'] || '');
           const quality = matchQuality(qSalts, pSalts);
-          return quality === 'exact' || (!knownBrand && quality === 'dose_mismatch');
+          return quality === 'exact';
         });
 
         filteredMatches.slice(0, 4).forEach(match => {

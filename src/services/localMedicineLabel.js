@@ -43,9 +43,51 @@ export function hasMedicineLabelEvidence(text, labelDetails = {}) {
   return /\b(?:tablets?|capsules?|pills?|syrup|suspension|injection|vial|ampoule|drops?|ointment|cream|gel|composition|active ingredient|each tablet|each capsule|mrp|batch|expiry|exp|mfg|manufactured|\d+(?:\.\d+)?\s*(?:mg|mcg|µg|g|iu|ml))\b/i.test(text || '')
 }
 
+const NON_INGREDIENT_TOKENS = new Set([
+  'tablet', 'tablets', 'capsule', 'capsules', 'injection', 'syrup', 'suspension', 'ointment', 'cream', 'gel',
+  'hydrochloride', 'dihydrochloride', 'hydrobromide', 'sulphate', 'sulfate', 'phosphate', 'maleate', 'tartrate',
+  'mesylate', 'acetate', 'citrate', 'gluconate', 'nitrate', 'fumarate', 'bicarbonate', 'carbonate',
+  'sodium', 'potassium', 'calcium', 'magnesium', 'monohydrate', 'trihydrate', 'anhydrous', 'equivalent',
+  'contains', 'each', 'uncoated', 'coated', 'extended', 'release', 'sustained', 'modified', 'prolonged',
+  'prepared', 'precipitated', 'sterile', 'oral', 'topical', 'additional', 'strength', 'ip', 'bp', 'usp'
+])
+
+function labelTokens(text) {
+  return (text || '').toLowerCase().match(/[a-z]{3,}/g) || []
+}
+
+function isCloseOcrToken(expected, actual) {
+  if (Math.abs(expected.length - actual.length) > 2) return false
+  let previous = Array.from({ length: actual.length + 1 }, (_, index) => index)
+  for (let i = 1; i <= expected.length; i++) {
+    const current = [i]
+    for (let j = 1; j <= actual.length; j++) {
+      current[j] = Math.min(
+        current[j - 1] + 1,
+        previous[j] + 1,
+        previous[j - 1] + (expected[i - 1] === actual[j - 1] ? 0 : 1)
+      )
+    }
+    previous = current
+  }
+  return previous[actual.length] <= 2
+}
+
+export function hasCatalogIngredientMatch(ocrText, match) {
+  const row = match?.row || match || {}
+  const name = row['Generic Name'] || row['Drug Name'] || row.name || ''
+  const ingredients = [...new Set(labelTokens(name).filter(token =>
+    token.length >= 6 && !NON_INGREDIENT_TOKENS.has(token)
+  ))]
+  if (!ingredients.length) return false
+
+  const ocrTokens = labelTokens(ocrText)
+  return ingredients.every(ingredient => ocrTokens.some(token => isCloseOcrToken(ingredient, token)))
+}
+
 export function hasVerifiedMedicineEvidence({ text, labelDetails, knownBrand, catalogMatches = [] }) {
   if (!hasMedicineLabelEvidence(text, labelDetails)) return false
-  return Boolean(knownBrand || catalogMatches.some(match => match?.exactMatch))
+  return Boolean(knownBrand || catalogMatches.some(match => hasCatalogIngredientMatch(text, match)))
 }
 
 function parseExpiry(line) {

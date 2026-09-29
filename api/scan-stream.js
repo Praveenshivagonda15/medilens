@@ -97,7 +97,7 @@ function lookupJanAushadhi(saltQuery) {
     }
   }
 
-  const best = exactMatch || doseMismatchMatch;
+  const best = exactMatch;
   if (best) {
     const mrp = parseFloat(best['MRP']) || 0;
     const unitSizeStr = best['Unit Size'] || '';
@@ -367,7 +367,9 @@ export default async function handler(req, res) {
     }
 
     // Add scraped alternatives
-    liveAlternatives.forEach(alt => {
+    liveAlternatives
+      .filter(alt => matchQuality(parseSalts(saltName), parseSalts(alt.name || '', alt.packSize || '')) === 'exact')
+      .forEach(alt => {
       const packSizeStr = alt.packSize || '';
       const numMatch = packSizeStr.match(/(\d+)/);
       let count = 1;
@@ -389,7 +391,7 @@ export default async function handler(req, res) {
         isJanAushadhi: isJA || undefined,
         url: alt.url,
       });
-    });
+      });
 
     const finalResult = {
       productType: 'MEDICINE',

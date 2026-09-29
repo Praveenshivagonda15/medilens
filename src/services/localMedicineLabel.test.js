@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { extractLocalLabelDetails, hasMedicineLabelEvidence, hasVerifiedMedicineEvidence, resolveKnownMedicineBrand } from './localMedicineLabel.js'
+import { extractLocalLabelDetails, hasCatalogIngredientMatch, hasMedicineLabelEvidence, hasVerifiedMedicineEvidence, resolveKnownMedicineBrand } from './localMedicineLabel.js'
+import { ensureLoaded, lookupJanAushadhi, matchQuality, parseSalts } from './dbService.js'
 
 test('resolves a Dolo 650 brand from OCR text to its active salt and strength', () => {
   assert.deepEqual(resolveKnownMedicineBrand('Paracetamol Tablets IP\nDolo-650'), {
@@ -43,10 +44,27 @@ test('requires medicine packaging evidence rather than arbitrary OCR text', () =
   assert.equal(hasMedicineLabelEvidence('Batch No: AB1234'), true)
 })
 
-test('rejects fuzzy-only catalog hits and accepts packaging with known or exact medicine matches', () => {
-  const text = 'Paracetamol Tablets IP 500 mg'
-  assert.equal(hasVerifiedMedicineEvidence({ text, catalogMatches: [{ score: 2.2, exactMatch: false }] }), false)
-  assert.equal(hasVerifiedMedicineEvidence({ text, catalogMatches: [{ score: 2.2, exactMatch: true }] }), true)
+test('matches OCR ingredients to catalog products and rejects unrelated product ingredients', () => {
+  const text = 'Flunarizine Dihydrochloride Tablets 5 mg Migarid 5 Each uncoated tablet contains Flunarizine'
+  const tablet = { row: { 'Generic Name': 'Flunarizine Tablets IP 5 mg' } }
+  const unrelatedOintment = { row: { 'Generic Name': 'Salicylic acid 1.15% w/w, Dithranol 1.15% w/w and Coal Tar 5.3% w/w Ointment' } }
+
+  assert.equal(hasCatalogIngredientMatch(text, tablet), true)
+  assert.equal(hasCatalogIngredientMatch(text.replaceAll('Flunarizine', 'Flunarzine'), tablet), true)
+  assert.equal(hasCatalogIngredientMatch(text, unrelatedOintment), false)
+  assert.equal(hasVerifiedMedicineEvidence({ text, catalogMatches: [unrelatedOintment] }), false)
+  assert.equal(hasVerifiedMedicineEvidence({ text, catalogMatches: [tablet] }), true)
   assert.equal(hasVerifiedMedicineEvidence({ text, knownBrand: { brandName: 'Crocin' } }), true)
   assert.equal(hasVerifiedMedicineEvidence({ text: 'Crocin sale today' , knownBrand: { brandName: 'Crocin' } }), false)
+})
+
+test('Flunarizine 5 mg matches its tablet record and blocks the unrelated ointment', async () => {
+  await ensureLoaded()
+  const query = parseSalts('Flunarizine Dihydrochloride 5 mg')
+  const correctProduct = parseSalts('Flunarizine Tablets IP 5 mg')
+  const unrelatedOintment = parseSalts('Salicylic acid 1.15% w/w, Dithranol 1.15% w/w and Coal Tar 5.3% w/w Ointment')
+
+  assert.equal(matchQuality(query, correctProduct), 'exact')
+  assert.equal(matchQuality(query, unrelatedOintment), 'blocked')
+  assert.equal(lookupJanAushadhi('Flunarizine Dihydrochloride 5 mg').best?.name, 'Flunarizine Tablets IP 5 mg')
 })
