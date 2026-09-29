@@ -114,12 +114,13 @@ productType: INJECTION for injections, LIQUID for oral liquids/syrups/drops, TOP
 Set productType=SUPPLEMENT for vitamins, minerals, calcium, vitamin D3, omega-3, multivitamins, nutraceuticals, health supplements - even if they come as tablets or strips (e.g. Calxofine D3, Shelcal, Neurobion, Limcee). These have no mg dose requirement.
 Set productType=HAZARDOUS if the item is a dangerous non-medicine that should NOT be consumed - e.g. acids (hydrochloric acid, sulphuric acid, acetic acid), hydrogen peroxide (H2O2), bleach, caustic soda, industrial solvents, disinfectants, pesticides, drain cleaners. These are harmful if ingested or misused.
 Set productType=NOT_MEDICINE if the item is clearly NOT a medicine and NOT hazardous - e.g. adhesives (Fevibond, Fevicol), cosmetics, food products, stationery, household items. When in doubt and there is no salt/drug name visible, use NOT_MEDICINE.
+Do not guess a medicine from an unrelated image or ordinary text. Only classify as a medicine when medicine packaging or a recognizable pharmaceutical product and its name/active ingredient are visible. Otherwise set productType=NOT_MEDICINE, brandName=null, saltName=null, and doseStr=null.
 
 Genuine signals (only list if actually SEEN): hologram, QR/barcode, govt MRP sticker, tamper seal, batch no, expiry, full address+PIN, licence no
 Fake signals (only list if actually SEEN): pixelated text on clear image, font mismatch, missing MRP/batch/expiry on INTACT label
 
 JSON only, no markdown:
-{"productType":"MEDICINE|INJECTION|LIQUID|TOPICAL|AYURVEDIC|SUPPLEMENT","brandName":null,"saltName":null,"doseStr":null,"manufacturer":null,"mrp":null,"unitSize":null,"batchNumber":null,"expiryDate":null,"licenceNumber":null,"genuineSignalsFound":[],"fakeSignalsFound":[],"confidence":85,"cannotRead":false,"cannotReadReason":null}`
+{"productType":"MEDICINE|INJECTION|LIQUID|TOPICAL|AYURVEDIC|SUPPLEMENT|NOT_MEDICINE|HAZARDOUS","brandName":null,"saltName":null,"doseStr":null,"manufacturer":null,"mrp":null,"unitSize":null,"batchNumber":null,"expiryDate":null,"licenceNumber":null,"genuineSignalsFound":[],"fakeSignalsFound":[],"confidence":85,"cannotRead":false,"cannotReadReason":null}`
 
 function mergeSaltDose(saltName, doseStr) {
   if (!saltName) return null
@@ -238,6 +239,10 @@ export async function scanMedicine(imageBase64, mimeType = 'image/jpeg', barcode
   const qrMrp      = barcodeData?.mrpFromQR   || null
 
   const img = await callVision(imageBase64, mimeType, IMAGE_READ_PROMPT)
+
+  if (!img.cannotRead && img.productType === 'MEDICINE' && !img.brandName && !img.saltName && !barcodeData) {
+    img.productType = 'NOT_MEDICINE'
+  }
 
   if (img.productType === 'HAZARDOUS') {
     return {

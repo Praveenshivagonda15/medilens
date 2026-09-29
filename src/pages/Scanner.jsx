@@ -18,7 +18,7 @@ import SearchWorker from '../wasm/search.worker.js?worker'
 import { getPKParameters, simulatePharmacokinetics, checkDosageSafety } from '../services/pharmacokineticsService.js'
 import InteractionGraphVisualizer from '../components/InteractionGraphVisualizer.jsx'
 import { parseSalts, matchQuality } from '../services/dbService.js'
-import { extractLocalLabelDetails, isExpiryMonthExpired, resolveKnownMedicineBrand } from '../services/localMedicineLabel.js'
+import { extractLocalLabelDetails, hasVerifiedMedicineEvidence, isExpiryMonthExpired, resolveKnownMedicineBrand } from '../services/localMedicineLabel.js'
 import { JA_STORE_URL, openJanAushadhiStore } from '../services/storeLocator.js'
 
 const VIEWS = { HOME: 'home', LOADING: 'loading', RESULTS: 'results', ERROR: 'error', AR: 'ar' }
@@ -940,7 +940,13 @@ export default function Scanner() {
           ? [knownBrand.saltComposition]
           : extractCandidateQueries(extractedText);
         if (candidates.length === 0) {
-          throw new Error("Could not identify any medicine names from the extracted text.");
+          setResults({
+            productType: 'NOT_MEDICINE',
+            cannotReadReason: 'No medicine could be identified in this image. Scan a medicine package with its name or active ingredient visible.',
+            preview: `data:image/jpeg;base64,${finalBase64}`,
+          });
+          setView(VIEWS.RESULTS);
+          return;
         }
 
         const getSearchResultsPromise = (queryStr) => {
@@ -978,10 +984,10 @@ export default function Scanner() {
           const expectedSalts = knownBrand ? parseSalts(knownBrand.saltComposition) : null;
           const candCdscoMatch = knownBrand
             ? (res.cdsco || []).find(match => matchQuality(expectedSalts, parseSalts(match.row['Strength'] || '')) === 'exact') || null
-            : (res.cdsco && res.cdsco.length > 0) ? res.cdsco[0] : null;
+            : (res.cdsco || []).find(match => match.exactMatch) || null;
           const candJaMatch = knownBrand
             ? (res.ja || []).find(match => matchQuality(expectedSalts, parseSalts(match.row['Generic Name'] || '')) === 'exact') || null
-            : (res.ja && res.ja.length > 0) ? res.ja[0] : null;
+            : (res.ja || []).find(match => match.exactMatch) || null;
           const candCdscoScore = candCdscoMatch ? candCdscoMatch.score : 0;
           const candJaScore = candJaMatch ? candJaMatch.score : 0;
           const candMaxScore = Math.max(candCdscoScore, candJaScore);
@@ -996,8 +1002,19 @@ export default function Scanner() {
           }
         });
 
-        if (!knownBrand && bestCdscoScore < 0.5 && bestJaScore < 0.5) {
-          throw new Error("Could not find any matching medicine salts in the CDSCO approved registry.");
+        if (!hasVerifiedMedicineEvidence({
+          text: extractedText,
+          labelDetails,
+          knownBrand,
+          catalogMatches: [bestCdscoMatch, bestJaMatch],
+        })) {
+          setResults({
+            productType: 'NOT_MEDICINE',
+            cannotReadReason: 'No medicine could be verified in this image. Scan a medicine package with its name, active ingredient, or package details visible.',
+            preview: `data:image/jpeg;base64,${finalBase64}`,
+          });
+          setView(VIEWS.RESULTS);
+          return;
         }
 
         let saltName = '';

@@ -217,9 +217,9 @@ export default function ResultsPanel({ results, preview, onReset, t, lang, isBoo
       <LayoutWrapper>
         <div style={{ background: '#fff', border: '1.5px solid var(--border)', borderRadius: 14, padding: '24px 20px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14, textAlign: 'center', boxShadow: 'var(--shadow)' }}>
           <span style={{ fontSize: 48 }}></span>
-          <div style={{ fontSize: 17, fontWeight: 700, color: 'var(--navy)' }}>Not a medicine</div>
+          <div style={{ fontSize: 17, fontWeight: 700, color: 'var(--navy)' }}>Medicine not identified</div>
           <div style={{ fontSize: 13.5, color: 'var(--textlt)', lineHeight: 1.6, maxWidth: 280 }}>
-            {results.cannotReadReason || 'This does not appear to be a medicine. MediLens only processes pharmaceutical products.'}
+            {results.cannotReadReason || 'No medicine could be verified in this image. Try a clear photo of the medicine name or active ingredient.'}
           </div>
           {results.brandName && (
             <div style={{ fontSize: 12, color: 'var(--textlt)', background: 'var(--bgsoft)', padding: '6px 12px', borderRadius: 8 }}>

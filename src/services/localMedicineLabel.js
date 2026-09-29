@@ -38,6 +38,16 @@ export function resolveKnownMedicineBrand(text) {
   return null
 }
 
+export function hasMedicineLabelEvidence(text, labelDetails = {}) {
+  if (Object.values(labelDetails).some(Boolean)) return true
+  return /\b(?:tablets?|capsules?|pills?|syrup|suspension|injection|vial|ampoule|drops?|ointment|cream|gel|composition|active ingredient|each tablet|each capsule|mrp|batch|expiry|exp|mfg|manufactured|\d+(?:\.\d+)?\s*(?:mg|mcg|µg|g|iu|ml))\b/i.test(text || '')
+}
+
+export function hasVerifiedMedicineEvidence({ text, labelDetails, knownBrand, catalogMatches = [] }) {
+  if (!hasMedicineLabelEvidence(text, labelDetails)) return false
+  return Boolean(knownBrand || catalogMatches.some(match => match?.exactMatch))
+}
+
 function parseExpiry(line) {
   const value = line.replace(/^.*?\b(?:exp(?:iry)?)(?:\s*date)?\b/i, ' ')
   const numeric = value.match(/\b(0?[1-9]|1[0-2])\s*[/.\-]\s*(20\d{2}|\d{2})\b/)
