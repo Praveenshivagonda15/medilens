@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useRef } from 'react'
-import PillSynth from './PillSynth.jsx'
 import { checkRecallStatus, generateReportingKeys, signCounterfeitReport } from '../services/verificationService.js'
 import { getPKParameters, simulatePharmacokinetics, calculatePhysiologicalIndices } from '../services/pharmacokineticsService.js'
 import { JA_STORE_URL, openJanAushadhiStore } from '../services/storeLocator.js'
@@ -278,7 +277,6 @@ export default function ResultsPanel({ results, preview, onReset, t, lang, isBoo
           {results.confidence || 70}%
         </div>
 
-      <PillSynth saltName={results?.saltComposition || results?.brandName || 'Paracetamol 500mg'} />
       </div>
 
       {(results.confidence || 70) < 50 && (
