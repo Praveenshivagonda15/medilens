@@ -10,6 +10,13 @@ test('resolves a Dolo 650 brand from OCR text to its active salt and strength', 
   })
 })
 
+test('resolves Dolo 650 when OCR confuses zero and the letter O', () => {
+  assert.deepEqual(resolveKnownMedicineBrand('Paracetamol Tablets IP D0lo-65O'), {
+    brandName: 'Dolo 650',
+    saltComposition: 'Paracetamol 650mg',
+  })
+})
+
 test('extracts printed package fields from OCR text without inventing missing values', () => {
   const details = extractLocalLabelDetails(`
     MRP Rs. 35.00 incl of all taxes

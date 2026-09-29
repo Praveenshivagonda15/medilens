@@ -35,6 +35,21 @@ export function resolveKnownMedicineBrand(text) {
     }
   }
 
+  const textTokens = normalized.split(/\s+/).filter(Boolean)
+  for (const alias of aliases) {
+    const aliasTokens = normalizeText(alias).split(/\s+/).filter(Boolean)
+    const usedTokens = new Set()
+    const matchesAlias = aliasTokens.every(aliasToken => {
+      const matchIndex = textTokens.findIndex((textToken, index) =>
+        !usedTokens.has(index) && isCloseOcrToken(aliasToken, textToken, 1)
+      )
+      if (matchIndex < 0) return false
+      usedTokens.add(matchIndex)
+      return true
+    })
+    if (matchesAlias) return { ...KNOWN_BRANDS[alias] }
+  }
+
   return null
 }
 
@@ -68,7 +83,7 @@ function labelTokens(text) {
   return (text || '').toLowerCase().match(/[a-z]{3,}/g) || []
 }
 
-function isCloseOcrToken(expected, actual) {
+function isCloseOcrToken(expected, actual, maxDistance = 2) {
   if (Math.abs(expected.length - actual.length) > 2) return false
   let previous = Array.from({ length: actual.length + 1 }, (_, index) => index)
   for (let i = 1; i <= expected.length; i++) {
@@ -82,7 +97,7 @@ function isCloseOcrToken(expected, actual) {
     }
     previous = current
   }
-  return previous[actual.length] <= 2
+  return previous[actual.length] <= maxDistance
 }
 
 export function hasCatalogIngredientMatch(ocrText, match) {
