@@ -1979,7 +1979,7 @@ function HomeView({
         ))}
       </div>
 
-      <div className="glass-surface settings-surface" style={{ 
+      {false && <div className="glass-surface settings-surface" style={{
         background: '#fff', 
         border: '1.5px solid var(--border)', 
         borderRadius: 16, 
@@ -2395,7 +2395,7 @@ function HomeView({
             </div>
           )}
         </div>
-      </div>
+      </div>}
 
       {isVaultLocked ? (
         <div style={{ 
@@ -2512,7 +2512,7 @@ function HomeView({
         )
       )}
 
-      {!isVaultLocked && (
+      {false && !isVaultLocked && (
         <div style={{ 
           marginTop: 20, 
           background: '#fff', 

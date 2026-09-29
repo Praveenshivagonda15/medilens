@@ -1006,7 +1006,7 @@ function InfoCard({ info, results, translating, profile }) {
           </div>
         )}
 
-        {pkParams && (
+        {false && pkParams && (
           <div style={{
             background: '#fff',
             border: '1.5px solid var(--border)',
