@@ -18,7 +18,7 @@ import SearchWorker from '../wasm/search.worker.js?worker'
 import { getPKParameters, simulatePharmacokinetics, checkDosageSafety } from '../services/pharmacokineticsService.js'
 import InteractionGraphVisualizer from '../components/InteractionGraphVisualizer.jsx'
 import { parseSalts, matchQuality } from '../services/dbService.js'
-import { extractLocalLabelDetails, hasCatalogIngredientMatch, hasVerifiedMedicineEvidence, isExpiryMonthExpired, resolveKnownMedicineBrand, selectBestMedicineOcrText } from '../services/localMedicineLabel.js'
+import { extractLocalLabelDetails, extractMedicineCandidateQueries, hasVerifiedMedicineEvidence, isExpiryMonthExpired, resolveKnownMedicineBrand } from '../services/localMedicineLabel.js'
 import { JA_STORE_URL, openJanAushadhiStore } from '../services/storeLocator.js'
 
 const VIEWS = { HOME: 'home', LOADING: 'loading', RESULTS: 'results', ERROR: 'error', AR: 'ar' }
@@ -45,15 +45,11 @@ const getTesseractWorker = async () => {
     try {
       const Tesseract = await loadTesseract();
       const workerPromise = Tesseract.createWorker('eng');
-      let timeoutId;
-      const timeoutPromise = new Promise((_, reject) => {
-        timeoutId = setTimeout(() => reject(new Error("OCR engine initialization timed out after 20 seconds.")), 20000)
-      });
-      try {
-        return await Promise.race([workerPromise, timeoutPromise]);
-      } finally {
-        clearTimeout(timeoutId);
-      }
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("OCR engine initialization timed out after 8 seconds.")), 8000)
+      );
+      const worker = await Promise.race([workerPromise, timeoutPromise]);
+      return worker;
     } catch (err) {
       tesseractWorkerPromise = null;
       throw err;
@@ -61,42 +57,6 @@ const getTesseractWorker = async () => {
   })();
   return tesseractWorkerPromise;
 };
-
-const NOISE_WORDS = new Set([
-  'tablets', 'capsules', 'capsule', 'tablet', 'mg', 'mcg', 'ml', 'g', 'b.no', 'batch', 'expiry', 
-  'exp', 'mfg', 'mrp', 'manufacturing', 'date', 'rs', 'price', 'rx', 'only', 'composition', 
-  'directions', 'dosage', 'warnings', 'keep', 'reach', 'children', 'store', 'cool', 'dry', 
-  'place', 'manufactured', 'by', 'marketed', 'india', 'ltd', 'limited', 'pvt', 'pharmaceuticals', 
-  'pharma', 'laboratories', 'labs', 'co', 'incorporated', 'inc', 'warning', 'prescriptions', 
-  'schedule', 'drug', 'caution', 'licensed', 'user', 'under', 'patent', 'ip', 'bp', 'usp',
-  'contains', 'each', 'film', 'coated', 'colour', 'titanium', 'dioxide'
-]);
-
-function extractCandidateQueries(text) {
-  if (!text) return [];
-  const lines = text.split('\n');
-  const candidates = [];
-  for (let line of lines) {
-    // Replace non-alphanumeric (except space) with space
-    let cleaned = line.toLowerCase().replace(/[^a-z0-9\s]/g, ' ');
-
-    let tokens = cleaned.split(/\s+/).map(t => t.trim()).filter(Boolean);
-
-    let filteredTokens = tokens.filter(token => {
-
-      if (/^\d+$/.test(token)) return false;
-
-      if (NOISE_WORDS.has(token)) return false;
-
-      return token.length >= 3;
-    });
-    
-    if (filteredTokens.length > 0) {
-      candidates.push(filteredTokens.join(' '));
-    }
-  }
-  return [...new Set(candidates)];
-}
 
 const LOCAL_DRUG_TEMPLATES = {
   paracetamol: {
@@ -891,7 +851,7 @@ export default function Scanner() {
     }
   };
 
-  const startAnalysis = useCallback(async (finalBase64, barcodeData, originalImage = null) => {
+  const startAnalysis = useCallback(async (finalBase64, barcodeData) => {
     try {
       if (barcodeData && barcodeData.isEmergencyCard) {
         setStep(3)
@@ -918,16 +878,8 @@ export default function Scanner() {
         let extractedText = '';
         try {
           const worker = await getTesseractWorker();
-          const { data: { text: processedText } } = await worker.recognize(`data:image/jpeg;base64,${finalBase64}`);
-          extractedText = processedText;
-          if (originalImage) {
-            try {
-              const { data: { text: originalText } } = await worker.recognize(originalImage);
-              extractedText = selectBestMedicineOcrText(processedText, originalText);
-            } catch (originalOcrErr) {
-              console.warn('Original image OCR fallback failed:', originalOcrErr);
-            }
-          }
+          const { data: { text } } = await worker.recognize(`data:image/jpeg;base64,${finalBase64}`);
+          extractedText = text;
         } catch (tessErr) {
           console.error("Local Tesseract OCR failed:", tessErr);
           throw new Error("Local OCR Engine failed. Please verify internet connection or toggle settings.");
@@ -950,7 +902,7 @@ export default function Scanner() {
 
         const candidates = knownBrand
           ? [knownBrand.saltComposition]
-          : extractCandidateQueries(extractedText);
+          : extractMedicineCandidateQueries(extractedText);
         if (candidates.length === 0) {
           setResults({
             productType: 'NOT_MEDICINE',
@@ -996,10 +948,10 @@ export default function Scanner() {
           const expectedSalts = knownBrand ? parseSalts(knownBrand.saltComposition) : null;
           const candCdscoMatch = knownBrand
             ? (res.cdsco || []).find(match => matchQuality(expectedSalts, parseSalts(match.row['Strength'] || '')) === 'exact') || null
-            : (res.cdsco || []).find(match => hasCatalogIngredientMatch(extractedText, match)) || null;
+            : (res.cdsco || []).find(match => match.exactMatch) || null;
           const candJaMatch = knownBrand
             ? (res.ja || []).find(match => matchQuality(expectedSalts, parseSalts(match.row['Generic Name'] || '')) === 'exact') || null
-            : (res.ja || []).find(match => hasCatalogIngredientMatch(extractedText, match)) || null;
+            : (res.ja || []).find(match => match.exactMatch) || null;
           const candCdscoScore = candCdscoMatch ? candCdscoMatch.score : 0;
           const candJaScore = candJaMatch ? candJaMatch.score : 0;
           const candMaxScore = Math.max(candCdscoScore, candJaScore);
@@ -1084,7 +1036,7 @@ export default function Scanner() {
           const item = match.row;
           const pSalts = parseSalts(item['Generic Name'] || '');
           const quality = matchQuality(qSalts, pSalts);
-          return quality === 'exact';
+          return quality === 'exact' || (!knownBrand && quality === 'dose_mismatch');
         });
 
         filteredMatches.slice(0, 4).forEach(match => {
@@ -1351,7 +1303,7 @@ function base64ToBlob(base64, mime = 'image/jpeg') {
       const barcodeData = await barcodePromise
       if (barcodeData) setBarcodeHit(true)
       
-      await startAnalysis(finalBase64, barcodeData, file)
+      await startAnalysis(finalBase64, barcodeData)
     } catch (err) {
       setError(err.message)
       setView(VIEWS.ERROR)

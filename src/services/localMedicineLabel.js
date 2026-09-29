@@ -20,6 +20,16 @@ const KNOWN_BRANDS = {
   combo: { brandName: 'Combo', saltComposition: 'Paracetamol 500mg' },
 }
 
+const OCR_NOISE_WORDS = new Set([
+  'tablets', 'capsules', 'capsule', 'tablet', 'mg', 'mcg', 'ml', 'g', 'b.no', 'batch', 'expiry',
+  'exp', 'mfg', 'mrp', 'manufacturing', 'date', 'rs', 'price', 'rx', 'only', 'composition',
+  'directions', 'dosage', 'warnings', 'keep', 'reach', 'children', 'store', 'cool', 'dry',
+  'place', 'manufactured', 'by', 'marketed', 'india', 'ltd', 'limited', 'pvt', 'pharmaceuticals',
+  'pharma', 'laboratories', 'labs', 'co', 'incorporated', 'inc', 'warning', 'prescriptions',
+  'schedule', 'drug', 'caution', 'licensed', 'user', 'under', 'patent', 'ip', 'bp', 'usp',
+  'contains', 'each', 'film', 'coated', 'colour', 'titanium', 'dioxide'
+])
+
 function normalizeText(text) {
   return (text || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
 }
@@ -35,21 +45,6 @@ export function resolveKnownMedicineBrand(text) {
     }
   }
 
-  const textTokens = normalized.split(/\s+/).filter(Boolean)
-  for (const alias of aliases) {
-    const aliasTokens = normalizeText(alias).split(/\s+/).filter(Boolean)
-    const usedTokens = new Set()
-    const matchesAlias = aliasTokens.every(aliasToken => {
-      const matchIndex = textTokens.findIndex((textToken, index) =>
-        !usedTokens.has(index) && isCloseOcrToken(aliasToken, textToken, 1)
-      )
-      if (matchIndex < 0) return false
-      usedTokens.add(matchIndex)
-      return true
-    })
-    if (matchesAlias) return { ...KNOWN_BRANDS[alias] }
-  }
-
   return null
 }
 
@@ -58,63 +53,29 @@ export function hasMedicineLabelEvidence(text, labelDetails = {}) {
   return /\b(?:tablets?|capsules?|pills?|syrup|suspension|injection|vial|ampoule|drops?|ointment|cream|gel|composition|active ingredient|each tablet|each capsule|mrp|batch|expiry|exp|mfg|manufactured|\d+(?:\.\d+)?\s*(?:mg|mcg|µg|g|iu|ml))\b/i.test(text || '')
 }
 
-export function selectBestMedicineOcrText(processedText, originalText) {
-  const score = (text) => {
-    if (!text?.trim()) return -1
-    const details = extractLocalLabelDetails(text)
-    const detailCount = Object.values(details).filter(Boolean).length
-    const labelCueCount = (text.match(/\b(?:tablet|capsule|syrup|injection|composition|mrp|batch|expiry|exp|mfg|manufactured|licence|license)\b/gi) || []).length
-    return (resolveKnownMedicineBrand(text) ? 1000 : 0) + detailCount * 40 + labelCueCount * 10 + Math.min(text.length, 1000) / 1000
-  }
-
-  return score(originalText) > score(processedText) ? originalText : processedText
-}
-
-const NON_INGREDIENT_TOKENS = new Set([
-  'tablet', 'tablets', 'capsule', 'capsules', 'injection', 'syrup', 'suspension', 'ointment', 'cream', 'gel',
-  'hydrochloride', 'dihydrochloride', 'hydrobromide', 'sulphate', 'sulfate', 'phosphate', 'maleate', 'tartrate',
-  'mesylate', 'acetate', 'citrate', 'gluconate', 'nitrate', 'fumarate', 'bicarbonate', 'carbonate',
-  'sodium', 'potassium', 'calcium', 'magnesium', 'monohydrate', 'trihydrate', 'anhydrous', 'equivalent',
-  'contains', 'each', 'uncoated', 'coated', 'extended', 'release', 'sustained', 'modified', 'prolonged',
-  'prepared', 'precipitated', 'sterile', 'oral', 'topical', 'additional', 'strength', 'ip', 'bp', 'usp'
-])
-
-function labelTokens(text) {
-  return (text || '').toLowerCase().match(/[a-z]{3,}/g) || []
-}
-
-function isCloseOcrToken(expected, actual, maxDistance = 2) {
-  if (Math.abs(expected.length - actual.length) > 2) return false
-  let previous = Array.from({ length: actual.length + 1 }, (_, index) => index)
-  for (let i = 1; i <= expected.length; i++) {
-    const current = [i]
-    for (let j = 1; j <= actual.length; j++) {
-      current[j] = Math.min(
-        current[j - 1] + 1,
-        previous[j] + 1,
-        previous[j - 1] + (expected[i - 1] === actual[j - 1] ? 0 : 1)
-      )
-    }
-    previous = current
-  }
-  return previous[actual.length] <= maxDistance
-}
-
-export function hasCatalogIngredientMatch(ocrText, match) {
-  const row = match?.row || match || {}
-  const name = row['Generic Name'] || row['Drug Name'] || row.name || ''
-  const ingredients = [...new Set(labelTokens(name).filter(token =>
-    token.length >= 6 && !NON_INGREDIENT_TOKENS.has(token)
-  ))]
-  if (!ingredients.length) return false
-
-  const ocrTokens = labelTokens(ocrText)
-  return ingredients.every(ingredient => ocrTokens.some(token => isCloseOcrToken(ingredient, token)))
-}
-
 export function hasVerifiedMedicineEvidence({ text, labelDetails, knownBrand, catalogMatches = [] }) {
   if (!hasMedicineLabelEvidence(text, labelDetails)) return false
-  return Boolean(knownBrand || catalogMatches.some(match => hasCatalogIngredientMatch(text, match)))
+  return Boolean(knownBrand || catalogMatches.some(match => match?.exactMatch))
+}
+
+export function extractMedicineCandidateQueries(text) {
+  if (!text) return []
+
+  const lines = text.split(/\r?\n/)
+  const candidates = []
+  const stopLine = /\b(?:dosage\s*:|colour\s*:|color\s*:|protect\s+from|keep\s+out\s+of\s+reach|schedule\s+[h-x]|not\s+be\s+sold|alternative\s+(?:as|to))\b/i
+
+  for (const line of lines) {
+    if (stopLine.test(line)) break
+    const cleaned = line.toLowerCase().replace(/[^a-z0-9\s]/g, ' ')
+    const tokens = cleaned.split(/\s+/).map(token => token.trim()).filter(Boolean)
+    const filteredTokens = tokens.filter(token =>
+      !/^\d+$/.test(token) && !OCR_NOISE_WORDS.has(token) && token.length >= 3
+    )
+    if (filteredTokens.length > 0) candidates.push(filteredTokens.join(' '))
+  }
+
+  return [...new Set(candidates)]
 }
 
 function parseExpiry(line) {

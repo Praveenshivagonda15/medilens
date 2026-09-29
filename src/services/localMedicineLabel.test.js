@@ -1,17 +1,10 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { extractLocalLabelDetails, hasCatalogIngredientMatch, hasMedicineLabelEvidence, hasVerifiedMedicineEvidence, resolveKnownMedicineBrand, selectBestMedicineOcrText } from './localMedicineLabel.js'
-import { ensureLoaded, lookupJanAushadhi, matchQuality, parseSalts } from './dbService.js'
+import { extractLocalLabelDetails, extractMedicineCandidateQueries, hasMedicineLabelEvidence, hasVerifiedMedicineEvidence, resolveKnownMedicineBrand } from './localMedicineLabel.js'
+import { ensureLoaded, lookupJanAushadhi } from './dbService.js'
 
 test('resolves a Dolo 650 brand from OCR text to its active salt and strength', () => {
   assert.deepEqual(resolveKnownMedicineBrand('Paracetamol Tablets IP\nDolo-650'), {
-    brandName: 'Dolo 650',
-    saltComposition: 'Paracetamol 650mg',
-  })
-})
-
-test('resolves Dolo 650 when OCR confuses zero and the letter O', () => {
-  assert.deepEqual(resolveKnownMedicineBrand('Paracetamol Tablets IP D0lo-65O'), {
     brandName: 'Dolo 650',
     saltComposition: 'Paracetamol 650mg',
   })
@@ -51,33 +44,52 @@ test('requires medicine packaging evidence rather than arbitrary OCR text', () =
   assert.equal(hasMedicineLabelEvidence('Batch No: AB1234'), true)
 })
 
-test('prefers original-image OCR when it recovers a known brand and package details', () => {
-  const processedText = 'tablets 650 mg'
-  const originalText = 'Paracetamol Tablets IP Dolo-650 Each uncoated tablet contains Paracetamol IP 650 mg Mfg. by Micro Labs Limited'
-  assert.equal(selectBestMedicineOcrText(processedText, originalText), originalText)
-})
-
-test('matches OCR ingredients to catalog products and rejects unrelated product ingredients', () => {
-  const text = 'Flunarizine Dihydrochloride Tablets 5 mg Migarid 5 Each uncoated tablet contains Flunarizine'
-  const tablet = { row: { 'Generic Name': 'Flunarizine Tablets IP 5 mg' } }
-  const unrelatedOintment = { row: { 'Generic Name': 'Salicylic acid 1.15% w/w, Dithranol 1.15% w/w and Coal Tar 5.3% w/w Ointment' } }
-
-  assert.equal(hasCatalogIngredientMatch(text, tablet), true)
-  assert.equal(hasCatalogIngredientMatch(text.replaceAll('Flunarizine', 'Flunarzine'), tablet), true)
-  assert.equal(hasCatalogIngredientMatch(text, unrelatedOintment), false)
-  assert.equal(hasVerifiedMedicineEvidence({ text, catalogMatches: [unrelatedOintment] }), false)
-  assert.equal(hasVerifiedMedicineEvidence({ text, catalogMatches: [tablet] }), true)
+test('rejects fuzzy-only catalog hits and accepts packaging with known or exact medicine matches', () => {
+  const text = 'Paracetamol Tablets IP 500 mg'
+  assert.equal(hasVerifiedMedicineEvidence({ text, catalogMatches: [{ score: 2.2, exactMatch: false }] }), false)
+  assert.equal(hasVerifiedMedicineEvidence({ text, catalogMatches: [{ score: 2.2, exactMatch: true }] }), true)
   assert.equal(hasVerifiedMedicineEvidence({ text, knownBrand: { brandName: 'Crocin' } }), true)
   assert.equal(hasVerifiedMedicineEvidence({ text: 'Crocin sale today' , knownBrand: { brandName: 'Crocin' } }), false)
 })
 
-test('Flunarizine 5 mg matches its tablet record and blocks the unrelated ointment', async () => {
-  await ensureLoaded()
-  const query = parseSalts('Flunarizine Dihydrochloride 5 mg')
-  const correctProduct = parseSalts('Flunarizine Tablets IP 5 mg')
-  const unrelatedOintment = parseSalts('Salicylic acid 1.15% w/w, Dithranol 1.15% w/w and Coal Tar 5.3% w/w Ointment')
+test('rejects the uploaded college timetable as a medicine image', () => {
+  const timetableOcr = `
+    GURU NANAK DEV ENGINEERING COLLEGE BIDAR
+    DEPARTMENT OF COMPUTER SCIENCE & ENGG
+    Academic Year 2026-27 Semester ODD CLASS TIME TABLE
+    Days Time MONDAY TUESDAY WEDNESDAY THURSDAY FRIDAY SATURDAY
+    CNS FN JW IOT FN VP PC FN SW RSE FN RJ BDA FN SF
+    Internet of Things Parallel computing Cryptography Network Security
+    Big Data Analytics Road safety Engineering Major Project Phase-II
+    Prof Vineeta Prof Savitri Prof John Prof Samreen Dr Dayanand
+  `
+  const labelDetails = extractLocalLabelDetails(timetableOcr)
 
-  assert.equal(matchQuality(query, correctProduct), 'exact')
-  assert.equal(matchQuality(query, unrelatedOintment), 'blocked')
-  assert.equal(lookupJanAushadhi('Flunarizine Dihydrochloride 5 mg').best?.name, 'Flunarizine Tablets IP 5 mg')
+  assert.equal(resolveKnownMedicineBrand(timetableOcr), null)
+  assert.equal(hasVerifiedMedicineEvidence({
+    text: timetableOcr,
+    labelDetails,
+    catalogMatches: [{ score: 2.2, exactMatch: true }],
+  }), false)
+})
+
+test('keeps Migarid Flunarizine candidates and excludes an unrelated OCR ointment tail', async () => {
+  const scanOcr = `
+    Flunarizine Dihydrochloride Tablets 5 mg
+    Migarid-5
+    Each uncoated tablet contains
+    Flunarizine Dihydrochloride BP equivalent to Flunarizine 5 mg
+    Colour Lake Carmoisine
+    Dosage: As directed by the Physician
+    Schedule H prescription drug
+    Alternative as Salicylic acid 1.15% w/w, Dithranol 1.15% w/w and Coal Tar 5.3% w/w Ointment
+  `
+  const candidates = extractMedicineCandidateQueries(scanOcr)
+  assert.ok(candidates.some(candidate => /flunarizine/i.test(candidate)))
+  assert.equal(candidates.some(candidate => /salicylic|dithranol|coal tar/i.test(candidate)), false)
+
+  await ensureLoaded()
+  const result = lookupJanAushadhi('Flunarizine Dihydrochloride 5 mg')
+  assert.equal(result.best?.name, 'Flunarizine Tablets IP 5 mg')
+  assert.equal(result.best?.mrp, 6.57)
 })
