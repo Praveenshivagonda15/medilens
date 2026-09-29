@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { extractLocalLabelDetails, hasCatalogIngredientMatch, hasMedicineLabelEvidence, hasVerifiedMedicineEvidence, resolveKnownMedicineBrand } from './localMedicineLabel.js'
+import { extractLocalLabelDetails, hasCatalogIngredientMatch, hasMedicineLabelEvidence, hasVerifiedMedicineEvidence, resolveKnownMedicineBrand, selectBestMedicineOcrText } from './localMedicineLabel.js'
 import { ensureLoaded, lookupJanAushadhi, matchQuality, parseSalts } from './dbService.js'
 
 test('resolves a Dolo 650 brand from OCR text to its active salt and strength', () => {
@@ -42,6 +42,12 @@ test('requires medicine packaging evidence rather than arbitrary OCR text', () =
   assert.equal(hasMedicineLabelEvidence('SALE TODAY AT MAIN STREET MARKET'), false)
   assert.equal(hasMedicineLabelEvidence('Paracetamol Tablets IP 500 mg'), true)
   assert.equal(hasMedicineLabelEvidence('Batch No: AB1234'), true)
+})
+
+test('prefers original-image OCR when it recovers a known brand and package details', () => {
+  const processedText = 'tablets 650 mg'
+  const originalText = 'Paracetamol Tablets IP Dolo-650 Each uncoated tablet contains Paracetamol IP 650 mg Mfg. by Micro Labs Limited'
+  assert.equal(selectBestMedicineOcrText(processedText, originalText), originalText)
 })
 
 test('matches OCR ingredients to catalog products and rejects unrelated product ingredients', () => {

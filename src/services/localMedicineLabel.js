@@ -43,6 +43,18 @@ export function hasMedicineLabelEvidence(text, labelDetails = {}) {
   return /\b(?:tablets?|capsules?|pills?|syrup|suspension|injection|vial|ampoule|drops?|ointment|cream|gel|composition|active ingredient|each tablet|each capsule|mrp|batch|expiry|exp|mfg|manufactured|\d+(?:\.\d+)?\s*(?:mg|mcg|µg|g|iu|ml))\b/i.test(text || '')
 }
 
+export function selectBestMedicineOcrText(processedText, originalText) {
+  const score = (text) => {
+    if (!text?.trim()) return -1
+    const details = extractLocalLabelDetails(text)
+    const detailCount = Object.values(details).filter(Boolean).length
+    const labelCueCount = (text.match(/\b(?:tablet|capsule|syrup|injection|composition|mrp|batch|expiry|exp|mfg|manufactured|licence|license)\b/gi) || []).length
+    return (resolveKnownMedicineBrand(text) ? 1000 : 0) + detailCount * 40 + labelCueCount * 10 + Math.min(text.length, 1000) / 1000
+  }
+
+  return score(originalText) > score(processedText) ? originalText : processedText
+}
+
 const NON_INGREDIENT_TOKENS = new Set([
   'tablet', 'tablets', 'capsule', 'capsules', 'injection', 'syrup', 'suspension', 'ointment', 'cream', 'gel',
   'hydrochloride', 'dihydrochloride', 'hydrobromide', 'sulphate', 'sulfate', 'phosphate', 'maleate', 'tartrate',

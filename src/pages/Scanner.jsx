@@ -18,7 +18,7 @@ import SearchWorker from '../wasm/search.worker.js?worker'
 import { getPKParameters, simulatePharmacokinetics, checkDosageSafety } from '../services/pharmacokineticsService.js'
 import InteractionGraphVisualizer from '../components/InteractionGraphVisualizer.jsx'
 import { parseSalts, matchQuality } from '../services/dbService.js'
-import { extractLocalLabelDetails, hasCatalogIngredientMatch, hasVerifiedMedicineEvidence, isExpiryMonthExpired, resolveKnownMedicineBrand } from '../services/localMedicineLabel.js'
+import { extractLocalLabelDetails, hasCatalogIngredientMatch, hasVerifiedMedicineEvidence, isExpiryMonthExpired, resolveKnownMedicineBrand, selectBestMedicineOcrText } from '../services/localMedicineLabel.js'
 import { JA_STORE_URL, openJanAushadhiStore } from '../services/storeLocator.js'
 
 const VIEWS = { HOME: 'home', LOADING: 'loading', RESULTS: 'results', ERROR: 'error', AR: 'ar' }
@@ -45,11 +45,15 @@ const getTesseractWorker = async () => {
     try {
       const Tesseract = await loadTesseract();
       const workerPromise = Tesseract.createWorker('eng');
-      const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error("OCR engine initialization timed out after 8 seconds.")), 8000)
-      );
-      const worker = await Promise.race([workerPromise, timeoutPromise]);
-      return worker;
+      let timeoutId;
+      const timeoutPromise = new Promise((_, reject) => {
+        timeoutId = setTimeout(() => reject(new Error("OCR engine initialization timed out after 20 seconds.")), 20000)
+      });
+      try {
+        return await Promise.race([workerPromise, timeoutPromise]);
+      } finally {
+        clearTimeout(timeoutId);
+      }
     } catch (err) {
       tesseractWorkerPromise = null;
       throw err;
@@ -887,7 +891,7 @@ export default function Scanner() {
     }
   };
 
-  const startAnalysis = useCallback(async (finalBase64, barcodeData) => {
+  const startAnalysis = useCallback(async (finalBase64, barcodeData, originalImage = null) => {
     try {
       if (barcodeData && barcodeData.isEmergencyCard) {
         setStep(3)
@@ -914,8 +918,16 @@ export default function Scanner() {
         let extractedText = '';
         try {
           const worker = await getTesseractWorker();
-          const { data: { text } } = await worker.recognize(`data:image/jpeg;base64,${finalBase64}`);
-          extractedText = text;
+          const { data: { text: processedText } } = await worker.recognize(`data:image/jpeg;base64,${finalBase64}`);
+          extractedText = processedText;
+          if (originalImage) {
+            try {
+              const { data: { text: originalText } } = await worker.recognize(originalImage);
+              extractedText = selectBestMedicineOcrText(processedText, originalText);
+            } catch (originalOcrErr) {
+              console.warn('Original image OCR fallback failed:', originalOcrErr);
+            }
+          }
         } catch (tessErr) {
           console.error("Local Tesseract OCR failed:", tessErr);
           throw new Error("Local OCR Engine failed. Please verify internet connection or toggle settings.");
@@ -1339,7 +1351,7 @@ function base64ToBlob(base64, mime = 'image/jpeg') {
       const barcodeData = await barcodePromise
       if (barcodeData) setBarcodeHit(true)
       
-      await startAnalysis(finalBase64, barcodeData)
+      await startAnalysis(finalBase64, barcodeData, file)
     } catch (err) {
       setError(err.message)
       setView(VIEWS.ERROR)
