@@ -49,7 +49,11 @@ export default function HamMenu({ open, onClose, lang, setLang, t, onScan, onHea
         <MenuItem icon="🏛" label={t.menuGov || 'Government sources'} sub="CDSCO · NPPA · Jan Aushadhi"
           onClick={() => window.open('https://cdsco.gov.in', '_blank')} />
 
-       
+        <MenuItem icon="👤" label="Developer" sub="Praveen Shivagonda"
+          onClick={() => window.open('https://github.com/Praveenshivagonda15', '_blank', 'noopener,noreferrer')} />
+
+        <MenuItem icon="⌘" label="GitHub" sub="MediLens source code"
+          onClick={() => window.open('https://github.com/Praveenshivagonda15/medilens', '_blank', 'noopener,noreferrer')} />
 
         <div style={{ margin: '6px 18px 0', paddingTop: 10, borderTop: '1px solid var(--border)', display: 'flex', gap: 12, paddingBottom: 12, flexWrap: 'wrap' }}>
           <button id="menu-privacy-link" onClick={() => go('privacy')} style={{ fontSize: 11.5, color: 'var(--green)', fontWeight: 500 }}>

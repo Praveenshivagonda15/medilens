@@ -4,6 +4,7 @@ dist
 .env
 .env.*
 !.env.example
+README.md
 .DS_Store
 test_menu_out.txt
 

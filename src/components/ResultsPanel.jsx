@@ -8,7 +8,7 @@ const REPORT_FORM_URL = 'https://docs.google.com/forms/d/e/1FAIpQLSce6duzii7D1Sl
 // Sends AI-generated strings through /api/groq proxy (keys stay server-side)
 async function translateTexts(texts, targetLang) {
   if (targetLang === 'en' || !texts || texts.length === 0) return texts
-  const langNames = { hi: 'Hindi', bn: 'Bengali', te: 'Telugu', mr: 'Marathi', ta: 'Tamil', gu: 'Gujarati' }
+  const langNames = { hi: 'Hindi', bn: 'Bengali', te: 'Telugu', mr: 'Marathi', ta: 'Tamil', gu: 'Gujarati', kn: 'Kannada' }
   const langName = langNames[targetLang] || 'Hindi'
   try {
     const res = await fetch('/api/groq', {
