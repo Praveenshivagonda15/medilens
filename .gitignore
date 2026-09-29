@@ -1,0 +1,11 @@
+﻿node_modules
+.vercel
+dist
+.env
+.env.*
+!.env.example
+.DS_Store
+test_menu_out.txt
+
+.agents/
+graphify-out/

@@ -1,0 +1,33 @@
+{
+  "functions": {
+    "api/groq.js": {
+      "memory": 1024,
+      "maxDuration": 60
+    },
+    "api/scan-stream.js": {
+      "memory": 1024,
+      "maxDuration": 60
+    },
+    "api/prices.js": {
+      "memory": 512,
+      "maxDuration": 20
+    },
+    "api/davaindia.js": {
+      "memory": 512,
+      "maxDuration": 15
+    }
+  },
+  "headers": [
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        { "key": "Access-Control-Allow-Origin", "value": "*" },
+        { "key": "Access-Control-Allow-Methods", "value": "GET, POST, OPTIONS" },
+        { "key": "Access-Control-Allow-Headers", "value": "Content-Type" }
+      ]
+    }
+  ],
+  "rewrites": [
+    { "source": "/((?!api/).*)", "destination": "/index.html" }
+  ]
+}
